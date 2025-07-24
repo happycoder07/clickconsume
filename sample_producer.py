@@ -1,7 +1,7 @@
 from confluent_kafka import Producer
 import json
 
-KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+KAFKA_BOOTSTRAP_SERVERS = 'kafka:9092'
 KAFKA_TOPIC = 'ipfix_logs'
 
 p = Producer({'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS})

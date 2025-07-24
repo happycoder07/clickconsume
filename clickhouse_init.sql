@@ -2,8 +2,8 @@ CREATE DATABASE IF NOT EXISTS logs;
 
 -- Target table
 CREATE TABLE IF NOT EXISTS logs.ipfix_entry (
-    flowStartMilliseconds DateTime,
-    flowEndMilliseconds DateTime,
+    flowStartMilliseconds Nullable(DateTime),
+    flowEndMilliseconds Nullable(DateTime),
     octetTotalCount UInt32,
     packetTotalCount UInt32,
     destinationIPv4Address String,
@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS logs.ipfix_entry (
     httpHost String,
     httpResponse String
 ) ENGINE = MergeTree()
-ORDER BY flowStartMilliseconds;
+ORDER BY flowStartMilliseconds
+SETTINGS allow_nullable_key = 1;
 
 -- Kafka engine table
 CREATE TABLE IF NOT EXISTS logs.ipfix_kafka (
@@ -47,4 +48,5 @@ SELECT
     '' AS httpGet,
     '' AS httpHost,
     '' AS httpResponse
-FROM logs.ipfix_kafka; 
+FROM logs.ipfix_kafka
+WHERE JSONExtractString(value, 'iana:flowStartMilliseconds') IS NOT NULL; 
