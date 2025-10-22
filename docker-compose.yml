@@ -16,6 +16,8 @@ services:
       - ALLOW_PLAINTEXT_LISTENER=yes
     volumes:
       - kafka_data:/bitnami/kafka
+    networks:
+      - flownetwork
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -27,6 +29,10 @@ services:
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     volumes:
       - ./clickhouse_init.sql:/docker-entrypoint-initdb.d/clickhouse_init.sql
+      - ./clickhouse_init.sh:/docker-entrypoint-initdb.d/clickhouse_init.sh
+      - ./clickhouse_user_init.sh:/docker-entrypoint-initdb.d/clickhouse_user_init.sh
+    networks:
+      - flownetwork   
 
   grafana:
     image: grafana/grafana:latest
@@ -37,6 +43,35 @@ services:
       - GF_INSTALL_PLUGINS=vertamedia-clickhouse-datasource
     depends_on:
       - clickhouse
+    networks:
+      - flownetwork
+
+
+  ipfix-generator:
+    image: ghcr.io/jfwenisch/ipfix-generator:latest
+    container_name: ipfix-generator
+    ports:
+      - "8080:8080"
+    networks:
+      - flownetwork
+    restart: unless-stopped
+
+
+  ipfixcol2:
+    image: ipfixcol2:latest
+    container_name: ipfixcol2
+    ports:
+      - "4739:4739"
+      - "9995:9995"
+    
+    depends_on:
+      - kafka
+      - clickhouse
+    networks:
+      - flownetwork
 
 volumes:
   kafka_data:
+networks:
+  flownetwork:
+    driver: bridge
