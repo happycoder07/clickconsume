@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -18,7 +17,7 @@ import (
 var (
 	kafkaBroker   = getEnv("KAFKA_BROKER", "kafka:9092")
 	kafkaTopic    = getEnv("KAFKA_TOPIC", "ipfix-topic")
-	clickhouseDSN = getEnv("CLICKHOUSE_DSN", "localhost:9000")
+	clickhouseDSN = getEnv("CLICKHOUSE_DSN", "clickhouse:9000")
 
 	batchSize     = 1000
 	flushInterval = 10 * time.Second
@@ -29,18 +28,39 @@ var (
 
 // Event defines the parsed IPFIX JSON message.
 type Event struct {
-	Type                    string    `json:"@type"`
-	FlowStart               time.Time `json:"iana:flowStartMilliseconds"`
-	FlowEnd                 time.Time `json:"iana:flowEndMilliseconds"`
-	SourceIPv4Address       string    `json:"iana:sourceIPv4Address"`
-	DestinationIPv4Address  string    `json:"iana:destinationIPv4Address"`
-	SourceTransportPort     int       `json:"iana:sourceTransportPort"`
-	DestinationTransportPort int      `json:"iana:destinationTransportPort"`
-	ProtocolIdentifier      string    `json:"iana:protocolIdentifier"`
-	OctetTotalCount         int       `json:"iana:octetTotalCount"`
-	PacketTotalCount        int       `json:"iana:packetTotalCount"`
-	SSLServerName           string    `json:"nccc:sslServerName"`
-	JA3Hash                 string    `json:"nccc:JA3_Hash"`
+	Type                     string         `json:"@type"`
+	FlowStart                time.Time      `json:"iana:flowStartMilliseconds"`
+	FlowEnd                  time.Time      `json:"iana:flowEndMilliseconds"`
+	SourceIPv4Address        string         `json:"iana:sourceIPv4Address"`
+	DestinationIPv4Address   string         `json:"iana:destinationIPv4Address"`
+	SourceTransportPort      PortField      `json:"iana:sourceTransportPort"`
+	DestinationTransportPort PortField      `json:"iana:destinationTransportPort"`
+	ProtocolIdentifier       string         `json:"iana:protocolIdentifier"`
+	OctetTotalCount          int            `json:"iana:octetDeltaCount"`
+	PacketTotalCount         int            `json:"iana:packetDeltaCount"`
+	SSLServerName            string         `json:"nccc:sslServerName"`
+	JA3Hash                  string         `json:"nccc:JA3_Hash"`
+}
+
+// PortField is a custom type to handle int or []int in JSON
+type PortField []int
+
+func (p *PortField) UnmarshalJSON(data []byte) error {
+	// Try as single int
+	var single int
+	if err := json.Unmarshal(data, &single); err == nil {
+		*p = PortField{single}
+		return nil
+	}
+
+	// Try as array of int
+	var arr []int
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*p = arr
+		return nil
+	}
+
+	return nil
 }
 
 // BatchJob holds parsed events for batch insert.
@@ -74,7 +94,7 @@ func main() {
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
-	log.Println("🚀 Kafka → ClickHouse container started...")
+	log.Println("🚀 Kafka → ClickHouse consumer started...")
 
 	for {
 		select {
@@ -169,14 +189,22 @@ func worker(ctx context.Context, conn clickhouse.Conn, jobs <-chan BatchJob, id 
 			continue
 		}
 		for _, e := range job.Events {
+			srcPort, dstPort := uint16(0), uint16(0)
+			if len(e.SourceTransportPort) > 0 {
+				srcPort = uint16(e.SourceTransportPort[0])
+			}
+			if len(e.DestinationTransportPort) > 0 {
+				dstPort = uint16(e.DestinationTransportPort[0])
+			}
+
 			err := batch.Append(
 				e.Type,
 				e.FlowStart,
 				e.FlowEnd,
 				e.SourceIPv4Address,
 				e.DestinationIPv4Address,
-				uint16(e.SourceTransportPort),
-				uint16(e.DestinationTransportPort),
+				srcPort,
+				dstPort,
 				e.ProtocolIdentifier,
 				uint64(e.OctetTotalCount),
 				uint64(e.PacketTotalCount),
